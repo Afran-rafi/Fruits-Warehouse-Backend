@@ -4,10 +4,27 @@ const port = process.env.PORT || 5000
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const cors = require('cors')
+const jwt = require('jsonwebtoken');
 app.use(cors())
 app.use(express.json())
 require('dotenv').config();
 
+// verify jwt
+function verifyJWT(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        return res.status(401).send({ message: 'unauthorized access' });
+    }
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(403).send({ message: 'Forbidden access' });
+        }
+        console.log('decoded', decoded);
+        req.decoded = decoded;
+        next();
+    })
+}
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.fnxrf.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
@@ -42,7 +59,7 @@ async function run() {
             const options = { upsert: true };
             const updated = {
                 $set: {
-                    quantity: updateFruits.quantity,
+                    quantity: updateFruits.quantity
                 }
             };
             const result = await itemsCollection.updateOne(filter, updated, options);
@@ -65,11 +82,18 @@ async function run() {
         });
 
         // myItems Fruits Collection
-        app.get('/myItems', async (req, res) => {
-            const query = {}
-            const cursor = myItemsCollection.find(query)
-            const myItems = await cursor.toArray()
-            res.send(myItems)
+        app.get('/myItems', verifyJWT, async (req, res) => {
+            const decodedEmail = req.decoded.email;
+            const email = req.query.email;
+            if (email === decodedEmail) {
+                const query = { email: email }
+                const cursor = myItemsCollection.find(query)
+                const myItems = await cursor.toArray()
+                res.send(myItems)
+            }
+            else {
+                res.status(403).send({ message: 'forbidden access' })
+            }
         })
 
         // myItems Delete
@@ -85,7 +109,6 @@ async function run() {
             const id = req.params.id
             const newQuantity = req.body
             const deliver = newQuantity.quantityUpdate - 1
-            // console.log(newQuantity.quantityUpdate-1,'ss');
             const query = { _id: ObjectId(id) }
             const options = { upsert: true };
             const updateDoc = {
@@ -98,8 +121,18 @@ async function run() {
             res.send(result);
         })
 
+        // JWT login
+        app.post('/login', async (req, res) => {
+            const user = req.body
+            const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+                expiresIn: '30d'
+            })
+            res.send({ accessToken })
+        })
+
     }
     finally {
+
     }
 }
 
